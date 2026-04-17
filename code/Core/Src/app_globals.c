@@ -1,0 +1,59 @@
+/**
+ * @file    app_globals.c
+ * @brief   Definitions of all shared application buffers, queue handles,
+ *          mutex handles, and task handles.
+ */
+
+#include "app_globals.h"
+
+/* =========================================================================
+ * PERIPHERAL HANDLES
+ * ========================================================================= */
+ADC_HandleTypeDef  hadc1;
+DMA_HandleTypeDef  hdma_adc1;
+TIM_HandleTypeDef  htim_adc;
+
+/* =========================================================================
+ * ADC SAMPLE BUFFERS
+ * ========================================================================= */
+uint16_t g_voltage_buf[ADC_BUFFER_SIZE];
+uint32_t g_adc_buf_len = ADC_BUFFER_SIZE;
+
+/* =========================================================================
+ * FFT BUFFERS
+ * ========================================================================= */
+float g_fft_mag[ADC_BUFFER_SIZE / 2];
+float g_fft_peak_freq_hz = 0.0f;
+float g_fft_peak_mag     = 0.0f;
+
+/* =========================================================================
+ * CURVE FIT RESULT
+ * ========================================================================= */
+CurveFitResult_t g_fit_result = { 0 };
+
+/* =========================================================================
+ * APPLICATION STATE
+ * ========================================================================= */
+volatile MeasMode_t g_meas_mode = MEAS_MODE_LV;
+
+/* =========================================================================
+ * FREERTOS HANDLES
+ * ========================================================================= */
+osMessageQueueId_t xDisplayCmdQueue = NULL;
+osMutexId_t        xADCBufMutex     = NULL;
+osMutexId_t        xFFTBufMutex     = NULL;
+
+osThreadId_t hVoltageADCTask = NULL;
+osThreadId_t hCurrentADCTask = NULL;
+osThreadId_t hFFTTask        = NULL;
+osThreadId_t hDisplayTask    = NULL;
+
+/* =========================================================================
+ * INITIALISATION
+ * ========================================================================= */
+void App_Globals_Init(void)
+{
+    xDisplayCmdQueue = osMessageQueueNew(8, sizeof(DisplayCmd_t), NULL);
+    xADCBufMutex     = osMutexNew(NULL);
+    xFFTBufMutex     = osMutexNew(NULL);
+}

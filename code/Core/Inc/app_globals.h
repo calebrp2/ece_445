@@ -1,0 +1,119 @@
+/**
+ * @file    app_globals.h
+ * @brief   Shared application types, buffers, queue handles, and task handles.
+ *
+ * All data that crosses task boundaries is declared here.
+ * Source definitions live in app_globals.c.
+ */
+
+#ifndef INC_APP_GLOBALS_H_
+#define INC_APP_GLOBALS_H_
+
+#include "cmsis_os.h"
+#include "board_config.h"
+#include <stdint.h>
+#include <stdbool.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* =========================================================================
+ * SHARED PERIPHERAL HANDLES
+ * hadc1 is defined in app_globals.c; htim_adc / hdma_adc1 likewise.
+ * ========================================================================= */
+extern ADC_HandleTypeDef  hadc1;
+extern DMA_HandleTypeDef  hdma_adc1;
+extern TIM_HandleTypeDef  htim_adc;   /* TIM2 — ADC trigger master */
+
+/* =========================================================================
+ * DISPLAY COMMAND TYPES
+ * ========================================================================= */
+typedef enum {
+    DISP_CMD_WAVEFORM  = 0,
+    DISP_CMD_CURRENT,
+    DISP_CMD_FFT,
+    DISP_CMD_CURVEFIT,
+    DISP_CMD_STATUS,
+    DISP_CMD_CLEAR,
+} DisplayCmdType_t;
+
+typedef struct {
+    DisplayCmdType_t type;
+    uint32_t         param;
+} DisplayCmd_t;
+
+/* =========================================================================
+ * MEASUREMENT MODE
+ * ========================================================================= */
+typedef enum {
+    MEAS_MODE_LV   = 0,
+    MEAS_MODE_HV,
+    MEAS_MODE_CURR,
+} MeasMode_t;
+
+/* =========================================================================
+ * CURVE FIT RESULT
+ * ========================================================================= */
+typedef struct {
+    float amplitude;
+    float frequency;
+    float phase_rad;
+    float dc_offset;
+    float rmse;
+    bool  valid;
+} CurveFitResult_t;
+
+/* =========================================================================
+ * SHARED ADC SAMPLE BUFFERS
+ * Single-channel DMA fills g_voltage_buf[] directly (no interleaving on G4).
+ * g_dma_adc_buf kept for API compatibility with downstream tasks.
+ * ========================================================================= */
+extern uint16_t g_voltage_buf[ADC_BUFFER_SIZE];   /* DMA destination  */
+extern uint32_t g_adc_buf_len;
+
+/* =========================================================================
+ * FFT OUTPUT BUFFER
+ * ========================================================================= */
+extern float g_fft_mag[ADC_BUFFER_SIZE / 2];
+extern float g_fft_peak_freq_hz;
+extern float g_fft_peak_mag;
+
+/* =========================================================================
+ * CURVE FIT RESULT
+ * ========================================================================= */
+extern CurveFitResult_t g_fit_result;
+
+/* =========================================================================
+ * APPLICATION STATE
+ * ========================================================================= */
+extern volatile MeasMode_t g_meas_mode;
+
+/* =========================================================================
+ * FREERTOS HANDLES
+ * ========================================================================= */
+extern osMessageQueueId_t xDisplayCmdQueue;
+extern osMutexId_t        xADCBufMutex;
+extern osMutexId_t        xFFTBufMutex;
+
+extern osThreadId_t hVoltageADCTask;
+extern osThreadId_t hCurrentADCTask;
+extern osThreadId_t hFFTTask;
+extern osThreadId_t hDisplayTask;
+
+/* =========================================================================
+ * NOTIFICATION BIT MASKS
+ * ========================================================================= */
+#define NOTIF_ADC_BUF_READY     (1U << 0)
+#define NOTIF_ADC_HALF_READY    (1U << 1)
+
+/* =========================================================================
+ * INITIALISATION
+ * ========================================================================= */
+void App_Globals_Init(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* INC_APP_GLOBALS_H_ */
