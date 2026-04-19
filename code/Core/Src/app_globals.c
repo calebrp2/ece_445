@@ -8,9 +8,8 @@
 
 /* =========================================================================
  * PERIPHERAL HANDLES
+ * hadc2 / hdma_adc2 are owned by CubeMX (main.c). Only htim_adc is ours.
  * ========================================================================= */
-ADC_HandleTypeDef  hadc1;
-DMA_HandleTypeDef  hdma_adc1;
 TIM_HandleTypeDef  htim_adc;
 
 /* =========================================================================
@@ -47,6 +46,7 @@ osThreadId_t hVoltageADCTask = NULL;
 osThreadId_t hCurrentADCTask = NULL;
 osThreadId_t hFFTTask        = NULL;
 osThreadId_t hDisplayTask    = NULL;
+osThreadId_t hCurveFitTask   = NULL;
 
 /* =========================================================================
  * INITIALISATION

@@ -29,6 +29,37 @@
 #define SENSE_CTRL_PIN          GPIO_PIN_2
 
 /* =========================================================================
+ * SPI2 — ILI9341 display bus (PB13=SCK AF5, PB15=MOSI AF5)
+ * ========================================================================= */
+#define DISP_SPI_INSTANCE       SPI2
+#define DISP_SPI_SCK_GPIO       GPIOB
+#define DISP_SPI_SCK_PIN        GPIO_PIN_13
+#define DISP_SPI_MOSI_GPIO      GPIOB
+#define DISP_SPI_MOSI_PIN       GPIO_PIN_15
+#define DISP_SPI_AF             GPIO_AF5_SPI2
+
+/* ILI9341 control signals */
+#define DISP_CS_GPIO            GPIOB
+#define DISP_CS_PIN             GPIO_PIN_12
+#define DISP_DC_GPIO            GPIOC
+#define DISP_DC_PIN             GPIO_PIN_13
+#define DISP_RST_GPIO           GPIOA
+#define DISP_RST_PIN            GPIO_PIN_7
+#define DISP_BL_GPIO            GPIOB
+#define DISP_BL_PIN             GPIO_PIN_9
+
+/* ILI9341 geometry */
+#define ILI9341_WIDTH           320U
+#define ILI9341_HEIGHT          240U
+
+/* =========================================================================
+ * CURRENT SENSE ENABLE — PA6 output, HIGH = current path active
+ *   Must be driven LOW whenever voltage ADC is running.
+ * ========================================================================= */
+#define CURR_SENSE_EN_GPIO      GPIOA
+#define CURR_SENSE_EN_PIN       GPIO_PIN_6
+
+/* =========================================================================
  * LOW-VOLTAGE ADC — PA1 = ADC2_IN2  (SENSE_CTRL HIGH)
  * ========================================================================= */
 #define LV_ADC_INSTANCE         ADC2
@@ -44,13 +75,6 @@
 #define HV_ADC_GPIO             GPIOA
 #define HV_ADC_PIN              GPIO_PIN_0
 
-/* =========================================================================
- * ADC DMA — DMA1 Channel 1 via DMAMUX (request changes with active ADC)
- * ========================================================================= */
-#define ADC_DMA_CHANNEL         DMA1_Channel1
-#define ADC_DMA_IRQn            DMA1_Channel1_IRQn
-#define ADC_DMA_IRQ_PRIORITY    5   /* >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY */
-
 /* ADC trigger timer — TIM2 fires at ADC_SAMPLE_RATE_HZ */
 #define ADC_TIM_INSTANCE        TIM2
 
@@ -64,5 +88,9 @@
 
 /* Samples per acquisition frame — must be power of 2 for FFT */
 #define ADC_BUFFER_SIZE         512U
+
+/* Debug timing probe — PB3 toggles around FFT core */
+#define DEBUG_FFT_GPIO          GPIOB
+#define DEBUG_FFT_PIN           GPIO_PIN_3
 
 #endif /* INC_BOARD_CONFIG_H_ */
