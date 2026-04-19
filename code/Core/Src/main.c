@@ -29,6 +29,7 @@
 #include "task_voltage_adc.h"
 #include "task_fft.h"
 #include "task_display.h"
+#include "task_classifier.h"
 #include "ili9341.h"
 /* USER CODE END Includes */
 
@@ -139,6 +140,7 @@ int main(void)
   HAL_SPI_DeInit(&hspi2);
   ILI9341_Init();
   Task_VoltageADC_Init();
+  Task_Classifier_Init();
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -179,6 +181,10 @@ int main(void)
   static const osThreadAttr_t fft_attr = {
       .name = "FFT", .stack_size = 512 * 4, .priority = osPriorityLow };
   hFFTTask = osThreadNew(Task_FFT_Run, NULL, &fft_attr);
+
+  static const osThreadAttr_t clf_attr = {
+      .name = "Classifier", .stack_size = 256 * 4, .priority = osPriorityLow };
+  hClassifierTask = osThreadNew(Task_Classifier_Run, NULL, &clf_attr);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -356,7 +362,7 @@ static void MX_DMA_Init(void)
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
   /* DMA1_Channel2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
 
 }
@@ -471,6 +477,19 @@ void StartPrintHiTask(void *argument)
     int flen = snprintf(fft_buf, sizeof(fft_buf), "FFT: %lu.%lu Hz  mag=%lu.%04lu\r\n",
                         freq_i, freq_f, mag_i, mag_f);
     CDC_Transmit_FS((uint8_t *)fft_buf, (uint16_t)flen);
+
+    /* Classifier result */
+    const char *wave_label;
+    switch (g_wave_type) {
+      case WAVE_TYPE_SINE:   wave_label = "SINE";    break;
+      case WAVE_TYPE_SQUARE: wave_label = "SQUARE";  break;
+      default:               wave_label = "UNKNOWN"; break;
+    }
+    uint32_t conf_pct = (uint32_t)(g_wave_confidence * 100.0f + 0.5f);
+    char clf_buf[48];
+    int clen = snprintf(clf_buf, sizeof(clf_buf), "WAVE: %s  conf=%lu%%\r\n",
+                        wave_label, conf_pct);
+    CDC_Transmit_FS((uint8_t *)clf_buf, (uint16_t)clen);
 
     osDelay(200);
   }

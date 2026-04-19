@@ -86,6 +86,18 @@ extern float g_fft_peak_mag;
 extern CurveFitResult_t g_fit_result;
 
 /* =========================================================================
+ * WAVE CLASSIFIER RESULT
+ * ========================================================================= */
+typedef enum {
+    WAVE_TYPE_UNKNOWN  = 0,
+    WAVE_TYPE_SINE,
+    WAVE_TYPE_SQUARE,
+} WaveType_t;
+
+extern volatile WaveType_t g_wave_type;
+extern volatile float      g_wave_confidence;
+
+/* =========================================================================
  * APPLICATION STATE
  * ========================================================================= */
 extern volatile MeasMode_t g_meas_mode;
@@ -102,6 +114,7 @@ extern osThreadId_t hCurrentADCTask;
 extern osThreadId_t hFFTTask;
 extern osThreadId_t hDisplayTask;
 extern osThreadId_t hCurveFitTask;
+extern osThreadId_t hClassifierTask;
 
 /* =========================================================================
  * NOTIFICATION BIT MASKS

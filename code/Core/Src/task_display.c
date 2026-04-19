@@ -167,41 +167,51 @@ static inline int16_t adc_to_y(uint16_t count)
 
 static void render_waveform(void)
 {
+    static uint16_t wave_local[ADC_BUFFER_SIZE];
+    uint32_t buf_len;
+
     DISP_LOG("DISP: render_waveform\r\n");
     ILI9341_FillRect(0, WAVE_Y, DISP_W, WAVE_H, COL_BG);
     draw_grid();
 
     osMutexAcquire(xADCBufMutex, osWaitForever);
-    int16_t prev_y = adc_to_y(g_voltage_buf[0]);
+    buf_len = g_adc_buf_len;
+    memcpy(wave_local, g_voltage_buf, buf_len * sizeof(uint16_t));
+    osMutexRelease(xADCBufMutex);
+
+    int16_t prev_y = adc_to_y(wave_local[0]);
     for (int16_t px = 1; px < DISP_W; px++) {
-        uint32_t idx = (uint32_t)px * g_adc_buf_len / DISP_W;
-        if (idx >= g_adc_buf_len) idx = g_adc_buf_len - 1U;
-        int16_t cur_y = adc_to_y(g_voltage_buf[idx]);
+        uint32_t idx = (uint32_t)px * buf_len / DISP_W;
+        if (idx >= buf_len) idx = buf_len - 1U;
+        int16_t cur_y = adc_to_y(wave_local[idx]);
         ILI9341_DrawLine(px - 1, prev_y, px, cur_y, COL_WAVE_V);
         prev_y = cur_y;
     }
-    osMutexRelease(xADCBufMutex);
 }
 
 static void render_fft(void)
 {
-    ILI9341_FillRect(0, FFT_Y, DISP_W, FFT_H, COL_BG);
+    static float fft_local[ADC_BUFFER_SIZE / 2U];
 
     osMutexAcquire(xFFTBufMutex, osWaitForever);
+    memcpy(fft_local, (const void *)g_fft_mag, sizeof(fft_local));
+    osMutexRelease(xFFTBufMutex);
+
+    ILI9341_FillRect(0, FFT_Y, DISP_W, FFT_H, COL_BG);
+
     float max_mag = 0.001f;
     for (uint32_t k = 0; k < ADC_BUFFER_SIZE / 2U; k++)
-        if (g_fft_mag[k] > max_mag) max_mag = g_fft_mag[k];
+        if (fft_local[k] > max_mag) max_mag = fft_local[k];
 
     uint32_t bins = ADC_BUFFER_SIZE / 2U;
     for (int16_t px = 0; px < DISP_W; px++) {
         uint32_t k = (uint32_t)px * bins / DISP_W;
         if (k >= bins) k = bins - 1U;
-        int16_t bar_h = (int16_t)(g_fft_mag[k] / max_mag * (float)FFT_H);
+        int16_t bar_h = (int16_t)(fft_local[k] / max_mag * (float)FFT_H);
         if (bar_h > (int16_t)FFT_H) bar_h = (int16_t)FFT_H;
         if (bar_h > 0)
             ILI9341_DrawVLine(px, (int16_t)(FFT_Y + FFT_H) - bar_h, bar_h, COL_FFT_BAR);
     }
-    osMutexRelease(xFFTBufMutex);
 }
 
 static void render_curvefit(void)

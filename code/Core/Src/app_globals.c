@@ -31,6 +31,12 @@ float g_fft_peak_mag     = 0.0f;
 CurveFitResult_t g_fit_result = { 0 };
 
 /* =========================================================================
+ * WAVE CLASSIFIER RESULT
+ * ========================================================================= */
+volatile WaveType_t g_wave_type       = WAVE_TYPE_UNKNOWN;
+volatile float      g_wave_confidence = 0.0f;
+
+/* =========================================================================
  * APPLICATION STATE
  * ========================================================================= */
 volatile MeasMode_t g_meas_mode = MEAS_MODE_LV;
@@ -42,11 +48,12 @@ osMessageQueueId_t xDisplayCmdQueue = NULL;
 osMutexId_t        xADCBufMutex     = NULL;
 osMutexId_t        xFFTBufMutex     = NULL;
 
-osThreadId_t hVoltageADCTask = NULL;
-osThreadId_t hCurrentADCTask = NULL;
-osThreadId_t hFFTTask        = NULL;
-osThreadId_t hDisplayTask    = NULL;
-osThreadId_t hCurveFitTask   = NULL;
+osThreadId_t hVoltageADCTask  = NULL;
+osThreadId_t hCurrentADCTask  = NULL;
+osThreadId_t hFFTTask         = NULL;
+osThreadId_t hDisplayTask     = NULL;
+osThreadId_t hCurveFitTask    = NULL;
+osThreadId_t hClassifierTask  = NULL;
 
 /* =========================================================================
  * INITIALISATION
