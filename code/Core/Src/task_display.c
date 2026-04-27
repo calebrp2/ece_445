@@ -3,10 +3,10 @@
  * @brief   ILI9341 display rendering task.
  *
  * Screen layout (320 × 240, landscape):
- *   Y  0– 19 : Status bar     (20 px)
- *   Y 20–179 : Waveform area  (160 px)
- *   Y 180–199: Divider        (20 px)
- *   Y 200–239: FFT spectrum   (40 px)
+ *   Y   0– 15 : Status bar     (16 px)
+ *   Y  16–201 : Waveform area  (186 px)
+ *   Y 202–209 : Divider        ( 8 px)
+ *   Y 210–239 : FFT spectrum   (30 px)
  */
 
 #include "task_display.h"
@@ -16,8 +16,20 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 
 #define DISP_LOG(s) CDC_Transmit_FS((uint8_t *)(s), sizeof(s) - 1)
+
+static void disp_printf(const char *fmt, ...)
+{
+    char buf[80];
+    va_list args;
+    va_start(args, fmt);
+    int len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if (len > 0)
+        CDC_Transmit_FS((uint8_t *)buf, (uint16_t)len);
+}
 
 /* =========================================================================
  * Layout constants
@@ -26,13 +38,13 @@
 #define DISP_H      ILI9341_HEIGHT
 
 #define STATUS_Y    0
-#define STATUS_H    20
-#define WAVE_Y      20
-#define WAVE_H      160
-#define DIVIDER_Y   180
-#define DIVIDER_H   20
-#define FFT_Y       200
-#define FFT_H       40
+#define STATUS_H    16
+#define WAVE_Y      16
+#define WAVE_H      186
+#define DIVIDER_Y   202
+#define DIVIDER_H   8
+#define FFT_Y       210
+#define FFT_H       30
 
 #define COL_BG          ILI9341_BLACK
 #define COL_WAVE_V      ILI9341_GREEN
@@ -146,6 +158,38 @@ static void draw_string(int16_t x, int16_t y, const char *str,
 }
 
 /* =========================================================================
+ * Voltage scaling — converts raw ADC count to actual terminal voltage (mV).
+ * Formula: actual_V = 13.20 * adc_V - 19.54  (x in volts, y in volts)
+ * ========================================================================= */
+#define VSCALE_SLOPE_PPM   13200L   /* 13.200 expressed as parts-per-1000 */
+#define VSCALE_OFFSET_MV   -19540L    /* -19.54 V offset in mV               */
+
+static inline uint32_t count_to_actual_mv(uint16_t count)
+{
+    uint32_t adc_mv = (uint32_t)count * ADC_VREF_MV / ADC_MAX_COUNT;
+    return adc_mv * VSCALE_SLOPE_PPM / 1000L + VSCALE_OFFSET_MV;
+}
+
+/* For AC amplitude: offset is DC bias, so only slope applies */
+static inline uint32_t adc_mv_to_actual_amp_mv(uint32_t adc_mv)
+{
+    return adc_mv * VSCALE_SLOPE_PPM / 1000L;
+}
+
+/* =========================================================================
+ * Auto-scaling state — updated each render_waveform pass
+ * ========================================================================= */
+static uint16_t s_y_bot_count = 0;
+static uint16_t s_y_top_count = ADC_MAX_COUNT;
+
+/* Differential trace state — avoids clearing the full waveform area each frame */
+static int16_t  s_trace_y[DISP_W];       /* rendered cur_y per column, last frame  */
+static int16_t  s_new_y[DISP_W];         /* cur_y per column, current frame        */
+static bool     s_trace_valid = false;   /* false until first waveform is drawn    */
+static uint16_t s_last_bot    = 0;
+static uint16_t s_last_top    = 0;       /* detect Y-scale changes → force redraw  */
+
+/* =========================================================================
  * Rendering helpers
  * ========================================================================= */
 static void draw_grid(void)
@@ -156,31 +200,145 @@ static void draw_grid(void)
         ILI9341_DrawVLine(gx, WAVE_Y, WAVE_H, COL_GRID);
 }
 
+static void draw_axis_labels(void)
+{
+    uint32_t span = s_y_top_count - s_y_bot_count;
+
+    /* Y-axis: voltage at each of the 5 horizontal grid lines (top → bottom) */
+    for (int i = 0; i <= 4; i++) {
+        int16_t  gy    = (int16_t)(WAVE_Y + i * (WAVE_H / 4));
+        /* interpolate count linearly from top to bottom */
+        uint32_t count = s_y_top_count - (uint32_t)i * span / 4U;
+        uint32_t mv    = count_to_actual_mv((uint16_t)count);
+        char buf[12];
+        snprintf(buf, sizeof(buf), "%ld.%ldV", mv / 1000, (mv % 1000) / 100);
+        /* text below gridline; bottom label goes above its line */
+        int16_t ty = (i == 4) ? (int16_t)(gy - FONT_H - 1) : (int16_t)(gy + 1);
+        draw_string(2, ty, buf, COL_STATUS_FG, COL_BG);
+    }
+
+    /* X-axis: absolute timestamps at x = 80, 160, 240.
+     * Right edge (x = DISP_W) = HAL_GetTick(); earlier columns are proportionally older. */
+    uint32_t now_ms      = HAL_GetTick();
+    uint32_t total_ms    = (uint32_t)ADC_BUFFER_SIZE * 1000U / ADC_SAMPLE_RATE_HZ;
+    int16_t  ty          = (int16_t)(WAVE_Y + WAVE_H - FONT_H - 2);
+    for (int j = 1; j <= 3; j++) {
+        int16_t  gx        = (int16_t)(j * DISP_W / 4);
+        uint32_t offset_ms = (uint32_t)(DISP_W - gx) * total_ms / DISP_W;
+        uint32_t abs_ms    = now_ms - offset_ms;
+        char buf[14];
+        snprintf(buf, sizeof(buf), "%lu.%02luS",
+                 abs_ms / 1000U, (abs_ms % 1000U) / 10U);
+        int16_t tx = gx - (int16_t)(strlen(buf) * (FONT_W + 1) / 2);
+        draw_string(tx, ty, buf, COL_STATUS_FG, COL_BG);
+    }
+}
+
+/* Call while holding xADCBufMutex. Finds min/max in buffer and adds 12% headroom. */
+static void compute_yscale(void)
+{
+    if (g_adc_buf_len == 0) return;
+
+    uint16_t mn = ADC_MAX_COUNT, mx = 0;
+    for (uint32_t i = 0; i < g_adc_buf_len; i++) {
+        if (g_voltage_buf[i] < mn) mn = g_voltage_buf[i];
+        if (g_voltage_buf[i] > mx) mx = g_voltage_buf[i];
+    }
+
+    /* Map actual signal min/max directly to screen edges so labels match the signal.
+     * For near-DC (flat signal), enforce a minimum span to avoid division by zero. */
+    if (mx <= mn + 10U) {
+        uint32_t mid = mn;
+        mn = (mid > 124U)                    ? (uint16_t)(mid - 124U) : 0U;
+        mx = (mid + 124U < ADC_MAX_COUNT)    ? (uint16_t)(mid + 124U) : ADC_MAX_COUNT;
+    }
+
+    s_y_bot_count = mn;
+    s_y_top_count = mx;
+
+    uint32_t bot_mv = count_to_actual_mv(mn);
+    uint32_t top_mv = count_to_actual_mv(mx);
+    disp_printf("SCALE: bot=%ld cnt (%ld.%ldV) top=%ld cnt (%ld.%ldV)\r\n",
+                (uint32_t)mn, bot_mv / 1000, (bot_mv % 1000) / 100,
+                (uint32_t)mx, top_mv / 1000, (top_mv % 1000) / 100);
+}
+
 static inline int16_t adc_to_y(uint16_t count)
 {
-    int16_t y = (int16_t)WAVE_Y + (int16_t)WAVE_H
-              - (int16_t)((uint32_t)count * WAVE_H / ADC_MAX_COUNT);
-    if (y < WAVE_Y)          y = WAVE_Y;
-    if (y > WAVE_Y + WAVE_H) y = WAVE_Y + WAVE_H;
-    return y;
+    if (count <= s_y_bot_count) return WAVE_Y + WAVE_H;
+    if (count >= s_y_top_count) return WAVE_Y;
+    uint32_t span = s_y_top_count - s_y_bot_count;
+    return (int16_t)(WAVE_Y + WAVE_H)
+         - (int16_t)((uint32_t)(count - s_y_bot_count) * WAVE_H / span);
 }
 
 static void render_waveform(void)
 {
     DISP_LOG("DISP: render_waveform\r\n");
-    ILI9341_FillRect(0, WAVE_Y, DISP_W, WAVE_H, COL_BG);
-    draw_grid();
 
+    /* Read ADC buffer and compute new y positions under the mutex, then release
+     * before any SPI writes so the ADC task isn't blocked during rendering. */
     osMutexAcquire(xADCBufMutex, osWaitForever);
-    int16_t prev_y = adc_to_y(g_voltage_buf[0]);
+    compute_yscale();
+    s_new_y[0] = adc_to_y(g_voltage_buf[0]);
     for (int16_t px = 1; px < DISP_W; px++) {
         uint32_t idx = (uint32_t)px * g_adc_buf_len / DISP_W;
         if (idx >= g_adc_buf_len) idx = g_adc_buf_len - 1U;
-        int16_t cur_y = adc_to_y(g_voltage_buf[idx]);
-        ILI9341_DrawLine(px - 1, prev_y, px, cur_y, COL_WAVE_V);
-        prev_y = cur_y;
+        s_new_y[px] = adc_to_y(g_voltage_buf[idx]);
     }
+
+    /* Print 8 evenly-spaced raw ADC samples for inspection */
+    disp_printf("SMPL:");
+    for (int k = 0; k < 8; k++) {
+        uint32_t i  = (uint32_t)k * g_adc_buf_len / 8U;
+        uint32_t mv = count_to_actual_mv(g_voltage_buf[i]);
+        disp_printf(" [%ld]=%ld.%ldV", i, mv / 1000, (mv % 1000) / 100);
+    }
+    disp_printf("\r\n");
     osMutexRelease(xADCBufMutex);
+
+    bool full_redraw = !s_trace_valid
+                    || s_y_bot_count != s_last_bot
+                    || s_y_top_count != s_last_top;
+
+    if (full_redraw) {
+        ILI9341_FillRect(0, WAVE_Y, DISP_W, WAVE_H, COL_BG);
+        draw_grid();
+        int16_t prev = s_new_y[0];
+        for (int16_t px = 1; px < DISP_W; px++) {
+            int16_t cur = s_new_y[px];
+            int16_t y0 = (prev <= cur) ? prev : cur;
+            int16_t h  = (prev <= cur) ? cur - prev + 1 : prev - cur + 1;
+            ILI9341_DrawVLine(px, y0, h, COL_WAVE_V);
+            prev = cur;
+        }
+        draw_axis_labels();
+        s_last_bot = s_y_bot_count;
+        s_last_top = s_y_top_count;
+    } else {
+        /* Differential update: erase old VLine, draw new VLine per column.
+         * Grid lines are not redrawn — they persist except where overwritten. */
+        int16_t old_prev = s_trace_y[0];
+        int16_t new_prev = s_new_y[0];
+        for (int16_t px = 1; px < DISP_W; px++) {
+            int16_t old_cur = s_trace_y[px];
+            int16_t new_cur = s_new_y[px];
+
+            int16_t oy0 = (old_prev <= old_cur) ? old_prev : old_cur;
+            int16_t oh  = (old_prev <= old_cur) ? old_cur - old_prev + 1 : old_prev - old_cur + 1;
+            ILI9341_DrawVLine(px, oy0, oh, COL_BG);
+
+            int16_t ny0 = (new_prev <= new_cur) ? new_prev : new_cur;
+            int16_t nh  = (new_prev <= new_cur) ? new_cur - new_prev + 1 : new_prev - new_cur + 1;
+            ILI9341_DrawVLine(px, ny0, nh, COL_WAVE_V);
+
+            old_prev = old_cur;
+            new_prev = new_cur;
+        }
+    }
+
+    memcpy(s_trace_y, s_new_y, DISP_W * sizeof(int16_t));
+    s_trace_valid = true;
 }
 
 static void render_fft(void)
@@ -241,28 +399,33 @@ static void render_status(void)
         default:             mode_str = "?";   break;
     }
 
-    uint32_t freq_int  = (uint32_t)g_fft_peak_freq_hz;
-    uint32_t freq_frac = (uint32_t)((g_fft_peak_freq_hz - (float)freq_int) * 10.0f);
+    uint32_t bot_mv   = count_to_actual_mv(s_y_bot_count);
+    uint32_t top_mv   = count_to_actual_mv(s_y_top_count);
+    uint32_t freq_int = (uint32_t)g_fft_peak_freq_hz;
 
     osMutexAcquire(xFFTBufMutex, osWaitForever);
-    float amp_v = g_fit_result.valid ? g_fit_result.amplitude : 0.0f;
+    float amp_v  = g_fit_result.valid ? g_fit_result.amplitude : 0.0f;
     bool  fit_ok = g_fit_result.valid;
     osMutexRelease(xFFTBufMutex);
 
-    uint32_t amp_mv = (uint32_t)(amp_v * 1000.0f);
+    uint32_t amp_mv  = adc_mv_to_actual_amp_mv((uint32_t)(amp_v * 1000.0f));
+    uint32_t tick    = HAL_GetTick();
+    uint32_t t_sec   = tick / 1000U;
+    uint32_t t_tenth = (tick % 1000U) / 100U;
 
-    char buf[48];
-    snprintf(buf, sizeof(buf), "%s F:%luHz A:%lumV %s",
-             mode_str, freq_int, amp_mv, fit_ok ? "OK" : "--");
-    draw_string(2, STATUS_Y + 6, buf, COL_STATUS_FG, COL_STATUS_BG);
-
-    (void)freq_frac;
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%lu.%lu-%lu.%luV %s F:%luHZ A:%luMV %s T:%lu.%luS",
+             bot_mv / 1000, (bot_mv % 1000) / 100,
+             top_mv / 1000, (top_mv % 1000) / 100,
+             mode_str, freq_int, amp_mv, fit_ok ? "OK" : "--",
+             t_sec, t_tenth);
+    draw_string(2, STATUS_Y + 5, buf, COL_STATUS_FG, COL_STATUS_BG);
 }
 
 static void render_divider(void)
 {
     ILI9341_FillRect(0, DIVIDER_Y, DISP_W, DIVIDER_H, COL_DIVIDER);
-    draw_string(2, DIVIDER_Y + 6, "FFT", COL_STATUS_FG, COL_DIVIDER);
+    draw_string(2, DIVIDER_Y + 1, "FFT", COL_STATUS_FG, COL_DIVIDER);
 }
 
 /* =========================================================================
@@ -274,6 +437,7 @@ void Task_Display_Init(void)
     ILI9341_FillRect(0, STATUS_Y, DISP_W, STATUS_H, COL_STATUS_BG);
     ILI9341_FillRect(0, WAVE_Y,   DISP_W, WAVE_H,   COL_BG);
     draw_grid();
+    draw_axis_labels();
     ILI9341_FillRect(0, FFT_Y,    DISP_W, FFT_H,    COL_BG);
     render_status();
 }

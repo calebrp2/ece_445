@@ -459,7 +459,7 @@ void StartPrintHiTask(void *argument)
     /* Convert 12-bit count to millivolts */
     uint32_t mv = (avg_count * ADC_VREF_MV) / ADC_MAX_COUNT;
 
-    len = snprintf(buf, sizeof(buf), "%lu.%03lu V\r\n", mv / 1000, mv % 1000);
+    len = snprintf(buf, sizeof(buf), "%lu -> %lu | %ld.%03ld V\r\n", avg_count, mv, mv / 1000, mv % 1000);
     CDC_Transmit_FS((uint8_t *)buf, (uint16_t)len);
 
     /* newlib-nano has no %f — use integer arithmetic */

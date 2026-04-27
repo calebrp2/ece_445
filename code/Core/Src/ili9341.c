@@ -260,14 +260,25 @@ void ILI9341_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color
     cs_low();
 
     if (s_tx_sem != NULL) {
-        /* DMA path — fill one row buffer, send row by row */
-        for (int16_t i = 0; i < w; i++) {
-            s_pixel_buf[i * 2]     = hi;
-            s_pixel_buf[i * 2 + 1] = lo;
-        }
-        for (int16_t row = 0; row < h; row++) {
-            HAL_SPI_Transmit_DMA(&hdisp_spi, s_pixel_buf, (uint16_t)(w * 2));
+        if (w == 1) {
+            /* Column fast path — pack all h pixels and send in one DMA transfer.
+             * s_pixel_buf is ILI9341_WIDTH*2 = 640 bytes; max h = 240 = 480 bytes. */
+            for (int16_t i = 0; i < h; i++) {
+                s_pixel_buf[i * 2]     = hi;
+                s_pixel_buf[i * 2 + 1] = lo;
+            }
+            HAL_SPI_Transmit_DMA(&hdisp_spi, s_pixel_buf, (uint16_t)(h * 2));
             osSemaphoreAcquire(s_tx_sem, osWaitForever);
+        } else {
+            /* Row fill — send one row at a time */
+            for (int16_t i = 0; i < w; i++) {
+                s_pixel_buf[i * 2]     = hi;
+                s_pixel_buf[i * 2 + 1] = lo;
+            }
+            for (int16_t row = 0; row < h; row++) {
+                HAL_SPI_Transmit_DMA(&hdisp_spi, s_pixel_buf, (uint16_t)(w * 2));
+                osSemaphoreAcquire(s_tx_sem, osWaitForever);
+            }
         }
     } else {
         /* Blocking fallback before DMAInit is called */
