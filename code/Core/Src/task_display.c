@@ -157,23 +157,10 @@ static void draw_string(int16_t x, int16_t y, const char *str,
     }
 }
 
-/* =========================================================================
- * Voltage scaling — converts raw ADC count to actual terminal voltage (mV).
- * Formula: actual_V = 13.20 * adc_V - 19.54  (x in volts, y in volts)
- * ========================================================================= */
-#define VSCALE_SLOPE_PPM   13200L   /* 13.200 expressed as parts-per-1000 */
-#define VSCALE_OFFSET_MV   -19540L    /* -19.54 V offset in mV               */
-
-static inline uint32_t count_to_actual_mv(uint16_t count)
-{
-    uint32_t adc_mv = (uint32_t)count * ADC_VREF_MV / ADC_MAX_COUNT;
-    return adc_mv * VSCALE_SLOPE_PPM / 1000L + VSCALE_OFFSET_MV;
-}
-
 /* For AC amplitude: offset is DC bias, so only slope applies */
-static inline uint32_t adc_mv_to_actual_amp_mv(uint32_t adc_mv)
+static inline int32_t adc_mv_to_actual_amp_mv(int32_t adc_mv)
 {
-    return adc_mv * VSCALE_SLOPE_PPM / 1000L;
+    return adc_mv * (int32_t)VSCALE_SLOPE_PPM / 1000L;
 }
 
 /* =========================================================================
@@ -188,6 +175,7 @@ static int16_t  s_new_y[DISP_W];         /* cur_y per column, current frame     
 static bool     s_trace_valid = false;   /* false until first waveform is drawn    */
 static uint16_t s_last_bot    = 0;
 static uint16_t s_last_top    = 0;       /* detect Y-scale changes → force redraw  */
+static int32_t  s_last_pan_x  = -1;     /* detect X-pan changes → force redraw    */
 
 /* =========================================================================
  * Rendering helpers
@@ -209,28 +197,35 @@ static void draw_axis_labels(void)
         int16_t  gy    = (int16_t)(WAVE_Y + i * (WAVE_H / 4));
         /* interpolate count linearly from top to bottom */
         uint32_t count = s_y_top_count - (uint32_t)i * span / 4U;
-        uint32_t mv    = count_to_actual_mv((uint16_t)count);
+        int32_t  mv    = count_to_actual_mv((uint16_t)count);
         char buf[12];
-        snprintf(buf, sizeof(buf), "%ld.%ldV", mv / 1000, (mv % 1000) / 100);
+        fmt_mv(buf, sizeof(buf), mv);
         /* text below gridline; bottom label goes above its line */
         int16_t ty = (i == 4) ? (int16_t)(gy - FONT_H - 1) : (int16_t)(gy + 1);
         draw_string(2, ty, buf, COL_STATUS_FG, COL_BG);
     }
 
-    /* X-axis: absolute timestamps at x = 80, 160, 240.
-     * Right edge (x = DISP_W) = HAL_GetTick(); earlier columns are proportionally older. */
-    uint32_t now_ms      = HAL_GetTick();
-    uint32_t total_ms    = (uint32_t)ADC_BUFFER_SIZE * 1000U / ADC_SAMPLE_RATE_HZ;
-    int16_t  ty          = (int16_t)(WAVE_Y + WAVE_H - FONT_H - 2);
-    for (int j = 1; j <= 3; j++) {
-        int16_t  gx        = (int16_t)(j * DISP_W / 4);
-        uint32_t offset_ms = (uint32_t)(DISP_W - gx) * total_ms / DISP_W;
-        uint32_t abs_ms    = now_ms - offset_ms;
-        char buf[14];
-        snprintf(buf, sizeof(buf), "%lu.%02luS",
-                 abs_ms / 1000U, (abs_ms % 1000U) / 10U);
-        int16_t tx = gx - (int16_t)(strlen(buf) * (FONT_W + 1) / 2);
-        draw_string(tx, ty, buf, COL_STATUS_FG, COL_BG);
+    /* X-axis: wall-clock time (HAL_GetTick) of each visible sample.
+     * The last sample in the buffer (index ADC_BUFFER_SIZE-1) was captured at
+     * g_adc_capture_tick ms. Earlier samples are offset back by sample_index * us_per_samp. */
+    {
+        int32_t  cur_pan     = g_pan_x_samples;
+        uint32_t us_per_samp = 1000000UL / ADC_SAMPLE_RATE_HZ;
+        uint32_t cap_tick    = g_adc_capture_tick;
+        int16_t  ty_x        = (int16_t)(WAVE_Y + WAVE_H - FONT_H - 2);
+        for (int j = 1; j <= 3; j++) {
+            int16_t  gx        = (int16_t)(j * DISP_W / 4);
+            int32_t  samp_idx  = cur_pan + (int32_t)gx;
+            uint32_t offset_ms = (uint32_t)((int32_t)(ADC_BUFFER_SIZE - 1) - samp_idx)
+                                 * us_per_samp / 1000U;
+            uint32_t abs_ms    = cap_tick - offset_ms;
+            uint32_t t_sec     = abs_ms / 1000U;
+            uint32_t t_tenth   = (abs_ms % 1000U) / 100U;
+            char buf[14];
+            snprintf(buf, sizeof(buf), "%lu.%luS", t_sec, t_tenth);
+            int16_t tx = gx - (int16_t)(strlen(buf) * (FONT_W + 1) / 2);
+            draw_string(tx, ty_x, buf, COL_STATUS_FG, COL_BG);
+        }
     }
 }
 
@@ -253,14 +248,28 @@ static void compute_yscale(void)
         mx = (mid + 124U < ADC_MAX_COUNT)    ? (uint16_t)(mid + 124U) : ADC_MAX_COUNT;
     }
 
+    /* Apply zoom: shrink or expand span around signal center */
+    int32_t center    = ((int32_t)mn + (int32_t)mx) / 2;
+    int32_t half_span = ((int32_t)mx - (int32_t)mn) / 2;
+    int8_t  zl        = g_zoom_level;
+    if (zl > 0)
+        half_span >>= zl;   /* zoom in: narrow */
+    else if (zl < 0)
+        half_span <<= (-zl); /* zoom out: widen */
+    if (half_span < 1) half_span = 1;
+    int32_t new_mn = center - half_span + g_pan_y_counts;
+    int32_t new_mx = center + half_span + g_pan_y_counts;
+    mn = (uint16_t)(new_mn < 0             ? 0             : new_mn > ADC_MAX_COUNT ? ADC_MAX_COUNT : new_mn);
+    mx = (uint16_t)(new_mx < 0             ? 0             : new_mx > ADC_MAX_COUNT ? ADC_MAX_COUNT : new_mx);
+
     s_y_bot_count = mn;
     s_y_top_count = mx;
 
-    uint32_t bot_mv = count_to_actual_mv(mn);
-    uint32_t top_mv = count_to_actual_mv(mx);
+    int32_t bot_mv = count_to_actual_mv(mn);
+    int32_t top_mv = count_to_actual_mv(mx);
     disp_printf("SCALE: bot=%ld cnt (%ld.%ldV) top=%ld cnt (%ld.%ldV)\r\n",
-                (uint32_t)mn, bot_mv / 1000, (bot_mv % 1000) / 100,
-                (uint32_t)mx, top_mv / 1000, (top_mv % 1000) / 100);
+                (long)mn, (long)(bot_mv / 1000), (long)((bot_mv < 0 ? -bot_mv : bot_mv) % 1000 / 100),
+                (long)mx, (long)(top_mv / 1000), (long)((top_mv < 0 ? -top_mv : top_mv) % 1000 / 100));
 }
 
 static inline int16_t adc_to_y(uint16_t count)
@@ -280,26 +289,32 @@ static void render_waveform(void)
      * before any SPI writes so the ADC task isn't blocked during rendering. */
     osMutexAcquire(xADCBufMutex, osWaitForever);
     compute_yscale();
-    s_new_y[0] = adc_to_y(g_voltage_buf[0]);
-    for (int16_t px = 1; px < DISP_W; px++) {
-        uint32_t idx = (uint32_t)px * g_adc_buf_len / DISP_W;
-        if (idx >= g_adc_buf_len) idx = g_adc_buf_len - 1U;
-        s_new_y[px] = adc_to_y(g_voltage_buf[idx]);
+    /* Show DISP_W consecutive samples starting at pan_x (one sample per pixel) */
+    int32_t pan_x   = g_pan_x_samples;
+    int32_t buf_len = (int32_t)g_adc_buf_len;
+    for (int16_t px = 0; px < DISP_W; px++) {
+        int32_t raw = pan_x + (int32_t)px;
+        if (raw < 0)        raw = 0;
+        if (raw >= buf_len) raw = buf_len - 1;
+        s_new_y[px] = adc_to_y(g_voltage_buf[(uint32_t)raw]);
     }
 
     /* Print 8 evenly-spaced raw ADC samples for inspection */
     disp_printf("SMPL:");
     for (int k = 0; k < 8; k++) {
-        uint32_t i  = (uint32_t)k * g_adc_buf_len / 8U;
-        uint32_t mv = count_to_actual_mv(g_voltage_buf[i]);
-        disp_printf(" [%ld]=%ld.%ldV", i, mv / 1000, (mv % 1000) / 100);
+        int32_t i  = pan_x + (int32_t)k * DISP_W / 8;
+        if (i < 0) i = 0;
+        if (i >= buf_len) i = buf_len - 1;
+        int32_t mv = count_to_actual_mv(g_voltage_buf[(uint32_t)i]);
+        disp_printf(" [%ld]=%ld.%ldV", (long)i, (long)(mv / 1000), (long)((mv < 0 ? -mv : mv) % 1000 / 100));
     }
     disp_printf("\r\n");
     osMutexRelease(xADCBufMutex);
 
     bool full_redraw = !s_trace_valid
                     || s_y_bot_count != s_last_bot
-                    || s_y_top_count != s_last_top;
+                    || s_y_top_count != s_last_top
+                    || pan_x         != s_last_pan_x;
 
     if (full_redraw) {
         ILI9341_FillRect(0, WAVE_Y, DISP_W, WAVE_H, COL_BG);
@@ -313,8 +328,9 @@ static void render_waveform(void)
             prev = cur;
         }
         draw_axis_labels();
-        s_last_bot = s_y_bot_count;
-        s_last_top = s_y_top_count;
+        s_last_bot   = s_y_bot_count;
+        s_last_top   = s_y_top_count;
+        s_last_pan_x = pan_x;
     } else {
         /* Differential update: erase old VLine, draw new VLine per column.
          * Grid lines are not redrawn — they persist except where overwritten. */
@@ -399,8 +415,8 @@ static void render_status(void)
         default:             mode_str = "?";   break;
     }
 
-    uint32_t bot_mv   = count_to_actual_mv(s_y_bot_count);
-    uint32_t top_mv   = count_to_actual_mv(s_y_top_count);
+    int32_t  bot_mv   = count_to_actual_mv(s_y_bot_count);
+    int32_t  top_mv   = count_to_actual_mv(s_y_top_count);
     uint32_t freq_int = (uint32_t)g_fft_peak_freq_hz;
 
     osMutexAcquire(xFFTBufMutex, osWaitForever);
@@ -408,16 +424,19 @@ static void render_status(void)
     bool  fit_ok = g_fit_result.valid;
     osMutexRelease(xFFTBufMutex);
 
-    uint32_t amp_mv  = adc_mv_to_actual_amp_mv((uint32_t)(amp_v * 1000.0f));
+    int32_t  amp_mv  = adc_mv_to_actual_amp_mv((int32_t)(amp_v * 1000.0f));
     uint32_t tick    = HAL_GetTick();
     uint32_t t_sec   = tick / 1000U;
     uint32_t t_tenth = (tick % 1000U) / 100U;
 
+    char bot_str[10], top_str[10];
+    fmt_mv(bot_str, sizeof(bot_str), bot_mv);
+    fmt_mv(top_str, sizeof(top_str), top_mv);
+
     char buf[64];
-    snprintf(buf, sizeof(buf), "%lu.%lu-%lu.%luV %s F:%luHZ A:%luMV %s T:%lu.%luS",
-             bot_mv / 1000, (bot_mv % 1000) / 100,
-             top_mv / 1000, (top_mv % 1000) / 100,
-             mode_str, freq_int, amp_mv, fit_ok ? "OK" : "--",
+    snprintf(buf, sizeof(buf), "%s-%s %s F:%luHZ A:%ldMV %s T:%lu.%luS",
+             bot_str, top_str,
+             mode_str, freq_int, (long)amp_mv, fit_ok ? "OK" : "--",
              t_sec, t_tenth);
     draw_string(2, STATUS_Y + 5, buf, COL_STATUS_FG, COL_STATUS_BG);
 }

@@ -75,6 +75,28 @@
 #define HV_ADC_GPIO             GPIOA
 #define HV_ADC_PIN              GPIO_PIN_0
 
+/* =========================================================================
+ * CURRENT SENSE ADC — PA3 = ADC1_IN4  (CURR_SENSE_EN HIGH)
+ * ========================================================================= */
+#define CURR_ADC_INSTANCE       ADC1
+#define CURR_ADC_CHANNEL        ADC_CHANNEL_4
+#define CURR_ADC_GPIO           GPIOA
+#define CURR_ADC_PIN            GPIO_PIN_3
+
+/* =========================================================================
+ * BUTTONS — GPIOB, active LOW (external pull-ups on PCB)
+ * FIXME: MENU3 and ENTER are both listed as PB3 — one pin must be wrong.
+ * ========================================================================= */
+#define BTN_GPIO        GPIOB
+#define BTN_MENU3_PIN   GPIO_PIN_0
+#define BTN_DOWN_PIN    GPIO_PIN_1
+#define BTN_UP_PIN      GPIO_PIN_2
+#define BTN_ENTER_PIN   GPIO_PIN_3
+#define BTN_LEFT_PIN    GPIO_PIN_4
+#define BTN_RIGHT_PIN   GPIO_PIN_5
+#define BTN_MENU2_PIN   GPIO_PIN_6
+#define BTN_MENU1_PIN   GPIO_PIN_7
+
 /* ADC trigger timer — TIM2 fires at ADC_SAMPLE_RATE_HZ */
 #define ADC_TIM_INSTANCE        TIM2
 

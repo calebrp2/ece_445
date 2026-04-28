@@ -30,6 +30,10 @@
 #include "task_fft.h"
 #include "task_display.h"
 #include "ili9341.h"
+#include "dac.h"
+#include "task_dac.h"
+#include "task_current_adc.h"
+#include "task_poll_button.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,8 +52,11 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
 ADC_HandleTypeDef hadc2;
 DMA_HandleTypeDef hdma_adc2;
+
+DAC_HandleTypeDef hdac1;
 
 SPI_HandleTypeDef hspi2;
 DMA_HandleTypeDef hdma_spi2_tx;
@@ -82,6 +89,8 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_ADC2_Init(void);
+static void MX_DAC1_Init(void);
+static void MX_ADC1_Init(void);
 void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
@@ -133,12 +142,16 @@ int main(void)
   MX_DMA_Init();
   MX_SPI2_Init();
   MX_ADC2_Init();
+  MX_DAC1_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   /* DMA1_Ch2 (SPI2 TX) priority defaults to 0 in CubeMX — must be >= 5 for FreeRTOS */
   HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 5, 0);
   HAL_SPI_DeInit(&hspi2);
   ILI9341_Init();
+  DAC_SignalGen_Init();
   Task_VoltageADC_Init();
+  Task_CurrentADC_Init();
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -179,6 +192,18 @@ int main(void)
   static const osThreadAttr_t fft_attr = {
       .name = "FFT", .stack_size = 512 * 4, .priority = osPriorityLow };
   hFFTTask = osThreadNew(Task_FFT_Run, NULL, &fft_attr);
+
+  static const osThreadAttr_t dac_attr = {
+      .name = "DAC", .stack_size = 128 * 4, .priority = osPriorityLow };
+  hDACTask = osThreadNew(Task_DAC_Run, NULL, &dac_attr);
+
+  static const osThreadAttr_t curr_attr = {
+      .name = "CurrADC", .stack_size = 256 * 4, .priority = osPriorityNormal };
+  hCurrentADCTask = osThreadNew(Task_CurrentADC_Run, NULL, &curr_attr);
+
+  static const osThreadAttr_t btn_attr = {
+      .name = "PollBtn", .stack_size = 128 * 4, .priority = osPriorityNormal };
+  osThreadNew(Task_PollButton_Run, NULL, &btn_attr);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -243,6 +268,74 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_MultiModeTypeDef multimode = {0};
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.GainCompensation = 0;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.OversamplingMode = DISABLE;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure the ADC multi-mode
+  */
+  multimode.Mode = ADC_MODE_INDEPENDENT;
+  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
   * @brief ADC2 Initialization Function
   * @param None
   * @retval None
@@ -302,6 +395,53 @@ static void MX_ADC2_Init(void)
 }
 
 /**
+  * @brief DAC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DAC1_Init(void)
+{
+
+  /* USER CODE BEGIN DAC1_Init 0 */
+
+  /* USER CODE END DAC1_Init 0 */
+
+  DAC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN DAC1_Init 1 */
+
+  /* USER CODE END DAC1_Init 1 */
+
+  /** DAC Initialization
+  */
+  hdac1.Instance = DAC1;
+  if (HAL_DAC_Init(&hdac1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** DAC channel OUT1 config
+  */
+  sConfig.DAC_HighFrequency = DAC_HIGH_FREQUENCY_INTERFACE_MODE_AUTOMATIC;
+  sConfig.DAC_DMADoubleDataMode = DISABLE;
+  sConfig.DAC_SignedFormat = DISABLE;
+  sConfig.DAC_SampleAndHold = DAC_SAMPLEANDHOLD_DISABLE;
+  sConfig.DAC_Trigger = DAC_TRIGGER_NONE;
+  sConfig.DAC_Trigger2 = DAC_TRIGGER_NONE;
+  sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
+  sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_EXTERNAL;
+  sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
+  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN DAC1_Init 2 */
+
+  /* USER CODE END DAC1_Init 2 */
+
+}
+
+/**
   * @brief SPI2 Initialization Function
   * @param None
   * @retval None
@@ -356,7 +496,7 @@ static void MX_DMA_Init(void)
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
   /* DMA1_Channel2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
 
 }
@@ -393,12 +533,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PA0 PA3 PA4 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_3|GPIO_PIN_4;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA2 PA6 PA7 PA8 */
   GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8;
@@ -439,38 +573,29 @@ void StartLedBlinkTask(void *argument)
 
 void StartPrintHiTask(void *argument)
 {
-  char buf[32];
+  char buf[80];
   int len;
   osDelay(1000); /* wait for USB enumeration */
   CDC_Transmit_FS((uint8_t *)"MAIN: USB up\r\n", 14);
   osDelay(1000);
-  char dbg[48];
-  int dlen = snprintf(dbg, sizeof(dbg), "MAIN: disp=%p volt=%p\r\n",
-                      (void *)hDisplayTask, (void *)hVoltageADCTask);
-  CDC_Transmit_FS((uint8_t *)dbg, (uint16_t)dlen);
   for (;;)
   {
-    /* Average the last ADC_BUFFER_SIZE samples to reduce noise */
+    /* Voltage: average buffer → scaled terminal voltage */
     uint32_t sum = 0;
     for (uint32_t i = 0; i < ADC_BUFFER_SIZE; i++)
       sum += g_voltage_buf[i];
-    uint32_t avg_count = sum / ADC_BUFFER_SIZE;
+    uint16_t v_count = (uint16_t)(sum / ADC_BUFFER_SIZE);
+    int32_t  v_actual_mv = count_to_actual_mv(v_count);
+    char     v_str[16];
+    fmt_mv(v_str, sizeof(v_str), v_actual_mv);
 
-    /* Convert 12-bit count to millivolts */
-    uint32_t mv = (avg_count * ADC_VREF_MV) / ADC_MAX_COUNT;
+    /* Current: latest single sample (raw count) */
+    uint16_t i_count = g_current_raw;
 
-    len = snprintf(buf, sizeof(buf), "%lu -> %lu | %ld.%03ld V\r\n", avg_count, mv, mv / 1000, mv % 1000);
+    len = snprintf(buf, sizeof(buf),
+                   "V: %s (%u)  |  I: %u\r\n",
+                   v_str, v_count, i_count);
     CDC_Transmit_FS((uint8_t *)buf, (uint16_t)len);
-
-    /* newlib-nano has no %f — use integer arithmetic */
-    uint32_t freq_i = (uint32_t)g_fft_peak_freq_hz;
-    uint32_t freq_f = (uint32_t)((g_fft_peak_freq_hz - (float)freq_i) * 10.0f);
-    uint32_t mag_i  = (uint32_t)g_fft_peak_mag;
-    uint32_t mag_f  = (uint32_t)((g_fft_peak_mag  - (float)mag_i)  * 10000.0f);
-    char fft_buf[48];
-    int flen = snprintf(fft_buf, sizeof(fft_buf), "FFT: %lu.%lu Hz  mag=%lu.%04lu\r\n",
-                        freq_i, freq_f, mag_i, mag_f);
-    CDC_Transmit_FS((uint8_t *)fft_buf, (uint16_t)flen);
 
     osDelay(200);
   }

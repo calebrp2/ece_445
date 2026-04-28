@@ -17,6 +17,7 @@ TIM_HandleTypeDef  htim_adc;
  * ========================================================================= */
 uint16_t g_voltage_buf[ADC_BUFFER_SIZE];
 uint32_t g_adc_buf_len = ADC_BUFFER_SIZE;
+uint16_t g_current_raw = 0;
 
 /* =========================================================================
  * FFT BUFFERS
@@ -31,9 +32,19 @@ float g_fft_peak_mag     = 0.0f;
 CurveFitResult_t g_fit_result = { 0 };
 
 /* =========================================================================
+ * BUTTON STATE
+ * ========================================================================= */
+volatile ButtonStates_t g_btn = { 0 };
+
+/* =========================================================================
  * APPLICATION STATE
  * ========================================================================= */
-volatile MeasMode_t g_meas_mode = MEAS_MODE_LV;
+volatile MeasMode_t g_meas_mode      = MEAS_MODE_LV;
+volatile bool       g_paused         = false;
+volatile int8_t     g_zoom_level     = 0;
+volatile int32_t    g_pan_y_counts      = 0;
+volatile int32_t    g_pan_x_samples     = 0;
+volatile uint32_t   g_adc_capture_tick  = 0;
 
 /* =========================================================================
  * FREERTOS HANDLES
@@ -47,6 +58,7 @@ osThreadId_t hCurrentADCTask = NULL;
 osThreadId_t hFFTTask        = NULL;
 osThreadId_t hDisplayTask    = NULL;
 osThreadId_t hCurveFitTask   = NULL;
+osThreadId_t hDACTask        = NULL;
 
 /* =========================================================================
  * INITIALISATION
