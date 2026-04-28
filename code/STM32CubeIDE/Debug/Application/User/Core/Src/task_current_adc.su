@@ -1,0 +1,2 @@
+../Application/User/Core/Src/task_current_adc.c:7:6:Task_CurrentADC_Init	40	static
+../Application/User/Core/Src/task_current_adc.c:21:6:Task_CurrentADC_Run	24	static

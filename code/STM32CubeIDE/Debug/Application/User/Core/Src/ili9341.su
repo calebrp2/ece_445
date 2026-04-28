@@ -1,0 +1,17 @@
+../Application/User/Core/Src/ili9341.c:48:20:cs_low	8	static
+../Application/User/Core/Src/ili9341.c:53:20:cs_high	8	static
+../Application/User/Core/Src/ili9341.c:58:20:dc_cmd	8	static
+../Application/User/Core/Src/ili9341.c:63:20:dc_data	8	static
+../Application/User/Core/Src/ili9341.c:68:13:write_cmd	16	static
+../Application/User/Core/Src/ili9341.c:77:13:write_data	16	static
+../Application/User/Core/Src/ili9341.c:86:13:write_byte	16	static
+../Application/User/Core/Src/ili9341.c:94:13:set_window	32	static
+../Application/User/Core/Src/ili9341.c:114:6:ILI9341_Init	120	static
+../Application/User/Core/Src/ili9341.c:228:6:ILI9341_DMAInit	8	static
+../Application/User/Core/Src/ili9341.c:233:6:HAL_SPI_TxCpltCallback	16	static
+../Application/User/Core/Src/ili9341.c:242:6:ILI9341_DrawPixel	24	static
+../Application/User/Core/Src/ili9341.c:250:6:ILI9341_FillRect	40	static
+../Application/User/Core/Src/ili9341.c:294:6:ILI9341_FillScreen	24	static
+../Application/User/Core/Src/ili9341.c:299:6:ILI9341_DrawHLine	32	static
+../Application/User/Core/Src/ili9341.c:304:6:ILI9341_DrawVLine	32	static
+../Application/User/Core/Src/ili9341.c:309:6:ILI9341_DrawLine	40	static
