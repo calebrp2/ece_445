@@ -156,11 +156,11 @@ extern osThreadId_t hWaveformClassTask;
 
 /* =========================================================================
  * VOLTAGE SCALING
- * actual_V = 13.200 * adc_V - 19.80
+ * actual_V = 13.200 * adc_V - 23.40
  * Calibrated: count=1862 (adc_mv=1500) → 0 V  (measured 2026-04-28)
  * ========================================================================= */
 #define VSCALE_SLOPE_PPM   13200L
-#define VSCALE_OFFSET_MV   -19800L
+#define VSCALE_OFFSET_MV   -23275L
 
 /* =========================================================================
  * CURRENT SCALING

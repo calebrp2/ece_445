@@ -106,7 +106,7 @@
 #define ADC_MAX_COUNT           ((1U << ADC_RESOLUTION_BITS) - 1U)  /* 4095 */
 
 /* Sample rate per channel in Hz (target: up to 100 kHz per spec) */
-#define ADC_SAMPLE_RATE_HZ      10000U
+#define ADC_SAMPLE_RATE_HZ      50000U
 
 /* Samples per acquisition frame — must be power of 2 for FFT */
 #define ADC_BUFFER_SIZE         512U
