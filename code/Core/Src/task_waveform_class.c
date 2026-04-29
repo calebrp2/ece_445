@@ -18,10 +18,12 @@
 #include "task_waveform_class.h"
 #include "app_globals.h"
 #include "board_config.h"
+#include "usbd_cdc_if.h"
 #include <math.h>
+#include <stdio.h>
 
 /* Minimum normalised peak magnitude to consider signal present */
-#define MIN_SIGNAL_MAG    0.02f
+#define MIN_SIGNAL_MAG    0.005f
 
 /* THD threshold below which the signal is classified as sinusoidal */
 #define THD_SINE_THRESH   0.15f
@@ -63,6 +65,18 @@ void Task_WaveformClass_Run(void *argument)
         float h4 = harmonic_mag(4U * k1);
         float h5 = harmonic_mag(5U * k1);
         osMutexRelease(xFFTBufMutex);
+
+        {
+            char buf[64];
+            int pm_i = (int)peak_mag;
+            int pm_f = (int)((peak_mag - (float)pm_i) * 10000.0f);
+            int h1_i = (int)h1;
+            int h1_f = (int)((h1 - (float)h1_i) * 10000.0f);
+            int len  = snprintf(buf, sizeof(buf),
+                                "WCLASS: peak_mag=%d.%04d h1=%d.%04d\r\n",
+                                pm_i, pm_f, h1_i, h1_f);
+            CDC_Transmit_FS((uint8_t *)buf, (uint16_t)len);
+        }
 
         WaveformType_t type;
 
