@@ -168,9 +168,12 @@ void Task_FFT_Run(void *argument)
         /* === Timing probe: set PB3 LOW === */
         HAL_GPIO_WritePin(DEBUG_FFT_GPIO, DEBUG_FFT_PIN, GPIO_PIN_RESET);
 
-        /* Notify curve-fit task that new FFT data / voltage data is ready */
+        /* Notify downstream tasks that new FFT data is ready */
         if (hCurveFitTask != NULL) {
             osThreadFlagsSet(hCurveFitTask, NOTIF_ADC_BUF_READY);
+        }
+        if (hWaveformClassTask != NULL) {
+            osThreadFlagsSet(hWaveformClassTask, NOTIF_FFT_DONE);
         }
 
         /* Request FFT spectrum redraw */

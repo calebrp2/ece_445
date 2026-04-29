@@ -39,12 +39,17 @@ volatile ButtonStates_t g_btn = { 0 };
 /* =========================================================================
  * APPLICATION STATE
  * ========================================================================= */
-volatile MeasMode_t g_meas_mode      = MEAS_MODE_LV;
+volatile MeasMode_t    g_meas_mode      = MEAS_MODE_LV;
+volatile WaveformType_t g_waveform_type = WAVEFORM_UNKNOWN;
 volatile bool       g_paused         = false;
 volatile int8_t     g_zoom_level     = 0;
 volatile int32_t    g_pan_y_counts      = 0;
 volatile int32_t    g_pan_x_samples     = 0;
 volatile uint32_t   g_adc_capture_tick  = 0;
+volatile uint8_t    g_sensing_mode = 2;
+volatile uint16_t   g_dac_level    = 2048;
+volatile uint32_t   g_dac_freq_hz  = 10;
+volatile uint32_t   g_dac_amp_pct  = 80;
 
 /* =========================================================================
  * FREERTOS HANDLES
@@ -53,12 +58,13 @@ osMessageQueueId_t xDisplayCmdQueue = NULL;
 osMutexId_t        xADCBufMutex     = NULL;
 osMutexId_t        xFFTBufMutex     = NULL;
 
-osThreadId_t hVoltageADCTask = NULL;
-osThreadId_t hCurrentADCTask = NULL;
-osThreadId_t hFFTTask        = NULL;
-osThreadId_t hDisplayTask    = NULL;
-osThreadId_t hCurveFitTask   = NULL;
-osThreadId_t hDACTask        = NULL;
+osThreadId_t hVoltageADCTask   = NULL;
+osThreadId_t hCurrentADCTask   = NULL;
+osThreadId_t hFFTTask          = NULL;
+osThreadId_t hDisplayTask      = NULL;
+osThreadId_t hCurveFitTask     = NULL;
+osThreadId_t hDACTask          = NULL;
+osThreadId_t hWaveformClassTask = NULL;
 
 /* =========================================================================
  * INITIALISATION

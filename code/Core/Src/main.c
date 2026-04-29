@@ -34,6 +34,7 @@
 #include "task_dac.h"
 #include "task_current_adc.h"
 #include "task_poll_button.h"
+#include "task_waveform_class.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -202,8 +203,12 @@ int main(void)
   hCurrentADCTask = osThreadNew(Task_CurrentADC_Run, NULL, &curr_attr);
 
   static const osThreadAttr_t btn_attr = {
-      .name = "PollBtn", .stack_size = 128 * 4, .priority = osPriorityNormal };
+      .name = "PollBtn", .stack_size = 512 * 4, .priority = osPriorityNormal };
   osThreadNew(Task_PollButton_Run, NULL, &btn_attr);
+
+  static const osThreadAttr_t waveclass_attr = {
+      .name = "WaveClass", .stack_size = 256 * 4, .priority = osPriorityLow };
+  hWaveformClassTask = osThreadNew(Task_WaveformClass_Run, NULL, &waveclass_attr);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -534,10 +539,17 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA2 PA6 PA7 PA8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8;
+  /*Configure GPIO pins : PA2 PA7 PA8 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_7|GPIO_PIN_8;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_6;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 

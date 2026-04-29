@@ -6,7 +6,9 @@
 
 extern DAC_HandleTypeDef hdac1;
 
-void DAC_SignalGen_Init(void);
-void DAC_SignalGen_Write(uint16_t value);  /* 12-bit, 0–4095 → 0–3.3 V */
+void     DAC_SignalGen_Init(void);
+void     DAC_SignalGen_SetFreqAmp(uint32_t freq_hz, uint32_t amp_pct);
+void     DAC_SignalGen_Write(uint16_t value);
+uint16_t DAC_SignalGen_GetSample(uint32_t idx);
 
 #endif /* INC_DAC_H_ */

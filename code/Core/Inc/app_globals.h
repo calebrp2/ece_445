@@ -56,6 +56,7 @@ typedef enum {
     DISP_CMD_CURVEFIT,
     DISP_CMD_STATUS,
     DISP_CMD_CLEAR,
+    DISP_CMD_DAC,
 } DisplayCmdType_t;
 
 typedef struct {
@@ -71,6 +72,18 @@ typedef enum {
     MEAS_MODE_HV,
     MEAS_MODE_CURR,
 } MeasMode_t;
+
+/* =========================================================================
+ * WAVEFORM CLASSIFICATION RESULT
+ * ========================================================================= */
+typedef enum {
+    WAVEFORM_UNKNOWN  = 0,
+    WAVEFORM_SINE,
+    WAVEFORM_SQUARE,
+    WAVEFORM_SAWTOOTH,
+} WaveformType_t;
+
+extern volatile WaveformType_t g_waveform_type;
 
 /* =========================================================================
  * CURVE FIT RESULT
@@ -109,11 +122,15 @@ extern CurveFitResult_t g_fit_result;
  * APPLICATION STATE
  * ========================================================================= */
 extern volatile MeasMode_t g_meas_mode;
-extern volatile bool       g_paused;        /* true = paused, false = playing */
-extern volatile int8_t     g_zoom_level;    /* -3=8x out … 0=1x … +3=8x in */
+extern volatile bool       g_paused;           /* true = paused, false = playing */
+extern volatile int8_t     g_zoom_level;       /* -3=8x out … 0=1x … +3=8x in */
 extern volatile int32_t    g_pan_y_counts;     /* vertical pan offset in ADC counts */
 extern volatile int32_t    g_pan_x_samples;    /* horizontal pan offset in samples */
 extern volatile uint32_t   g_adc_capture_tick; /* HAL_GetTick() at last DMA complete */
+extern volatile uint8_t    g_sensing_mode;     /* 1=current, 2=voltage, 3=DAC */
+extern volatile uint16_t   g_dac_level;        /* current DAC output in ADC counts (0–4095) */
+extern volatile uint32_t   g_dac_freq_hz;      /* sine frequency: 5–100 Hz */
+extern volatile uint32_t   g_dac_amp_pct;      /* sine amplitude: 10–100 % of full scale */
 
 /* =========================================================================
  * FREERTOS HANDLES
@@ -128,19 +145,33 @@ extern osThreadId_t hFFTTask;
 extern osThreadId_t hDisplayTask;
 extern osThreadId_t hCurveFitTask;
 extern osThreadId_t hDACTask;
+extern osThreadId_t hWaveformClassTask;
 
 /* =========================================================================
  * NOTIFICATION BIT MASKS
  * ========================================================================= */
 #define NOTIF_ADC_BUF_READY     (1U << 0)
 #define NOTIF_ADC_HALF_READY    (1U << 1)
+#define NOTIF_FFT_DONE          (1U << 2)
 
 /* =========================================================================
  * VOLTAGE SCALING
- * actual_V = 13.200 * adc_V - 19.54
+ * actual_V = 13.200 * adc_V - 19.80
+ * Calibrated: count=1862 (adc_mv=1500) → 0 V  (measured 2026-04-28)
  * ========================================================================= */
 #define VSCALE_SLOPE_PPM   13200L
-#define VSCALE_OFFSET_MV   -19740L
+#define VSCALE_OFFSET_MV   -19800L
+
+/* =========================================================================
+ * CURRENT SCALING
+ * I_mA = count * 0.02626
+ * ========================================================================= */
+#define CURR_SCALE_MA_PER_COUNT  0.02626f
+
+static inline float count_to_current_ma(uint16_t count)
+{
+    return (float)count * CURR_SCALE_MA_PER_COUNT;
+}
 
 static inline int32_t count_to_actual_mv(uint16_t count)
 {

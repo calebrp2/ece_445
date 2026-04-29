@@ -12,6 +12,8 @@
 
 #include "task_voltage_adc.h"
 #include "task_fft.h"
+#include "usbd_cdc_if.h"
+#include <stdio.h>
 
 /* -------------------------------------------------------------------------
  * DMA callbacks
@@ -117,8 +119,10 @@ void Task_VoltageADC_Run(void *argument)
     {
         osThreadFlagsWait(NOTIF_ADC_BUF_READY, osFlagsWaitAny, osWaitForever);
 
-        if (g_paused)
+        if (g_paused || g_sensing_mode != 2)
             continue;
+
+        HAL_GPIO_WritePin(CURR_SENSE_EN_GPIO, CURR_SENSE_EN_PIN, GPIO_PIN_RESET);
 
         if (hFFTTask != NULL) {
             osThreadFlagsSet(hFFTTask, NOTIF_ADC_BUF_READY);
